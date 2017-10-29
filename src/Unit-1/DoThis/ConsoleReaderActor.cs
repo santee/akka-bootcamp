@@ -13,11 +13,11 @@ namespace WinTail
 
         public const string StartCommand = "start";
 
-        private readonly IActorRef consoleWriterActor;
+        private readonly IActorRef validationActor;
 
-        public ConsoleReaderActor(IActorRef consoleWriterActor)
+        public ConsoleReaderActor(IActorRef validationActor)
         {
-            this.consoleWriterActor = consoleWriterActor;
+            this.validationActor = validationActor;
         }
 
         protected override void OnReceive(object message)
@@ -26,9 +26,6 @@ namespace WinTail
             {
                 case StartCommand:
                     this.DoPrintInstructions();
-                    break;
-                case Messages.InputError error:
-                    this.consoleWriterActor.Tell(error);
                     break;
             }
 
@@ -39,28 +36,13 @@ namespace WinTail
         {
             switch (Console.ReadLine())
             {
-                case var m when string.IsNullOrWhiteSpace(m):
-                    this.Self.Tell(new Messages.NullInputError("No input received"));
-                    break;
-
                 case var m when string.Equals(m, ExitCommand, StringComparison.OrdinalIgnoreCase):
                     Context.System.Terminate();
                     break;
-
-                case var m when this.IsValid(m):
-                    this.consoleWriterActor.Tell(new Messages.InputSuccess("Thank you! Message was valid"));
-                    this.Self.Tell(new Messages.ContinueProcessing());
-                    break;
-                default:
-                    this.Self.Tell(new Messages.ValidationError("Invalid, input had odd number of characters"));
+                case var m:
+                    this.validationActor.Tell(m);
                     break;
             }
-        }
-
-        private bool IsValid(string message)
-        {
-            var valid = message.Length % 2 == 0;
-            return valid;
         }
 
         private void DoPrintInstructions()
