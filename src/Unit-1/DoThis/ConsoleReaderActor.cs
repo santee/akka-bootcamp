@@ -13,13 +13,6 @@ namespace WinTail
 
         public const string StartCommand = "start";
 
-        private readonly IActorRef validationActor;
-
-        public ConsoleReaderActor(IActorRef validationActor)
-        {
-            this.validationActor = validationActor;
-        }
-
         protected override void OnReceive(object message)
         {
             switch (message)
@@ -40,7 +33,7 @@ namespace WinTail
                     Context.System.Terminate();
                     break;
                 case var m:
-                    this.validationActor.Tell(m);
+                    Context.ActorSelection("akka://MyActorSystem/user/validationActor").Tell(m);
                     break;
             }
         }

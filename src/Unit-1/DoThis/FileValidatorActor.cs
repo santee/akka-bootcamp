@@ -8,12 +8,9 @@
     {
         private readonly IActorRef consoleWriterActor;
 
-        private readonly IActorRef tailCoordinatorActor;
-
-        public FileValidatorActor(IActorRef consoleWriterActor, IActorRef tailCoordinatorActor)
+        public FileValidatorActor(IActorRef consoleWriterActor)
         {
             this.consoleWriterActor = consoleWriterActor;
-            this.tailCoordinatorActor = tailCoordinatorActor;
         }
 
         protected override void OnReceive(object message)
@@ -26,7 +23,7 @@
                     break;
                 case string m when this.IsFileUri(m):
                     this.consoleWriterActor.Tell(new Messages.InputSuccess($"Starting processing for {m}"));
-                    this.tailCoordinatorActor.Tell(new TailCoordinatorActor.StartTail(m, this.consoleWriterActor));
+                    Context.ActorSelection("akka://MyActorSystem/user/tailCoordinatorActor").Tell(new TailCoordinatorActor.StartTail(m, this.consoleWriterActor));
                     break;
                 default:
                     this.consoleWriterActor.Tell(new Messages.ValidationError($"{message} is not an existing URI on disk"));
