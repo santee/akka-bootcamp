@@ -47,6 +47,8 @@ namespace GithubActors.Actors
         private IActorRef coordinator;
         private IActorRef canAcceptJobSender;
 
+        private RepoKey repoJob;
+
         private int pendingJobReplies;
 
         public GithubCommanderActor()
@@ -60,6 +62,7 @@ namespace GithubActors.Actors
                                       {
                                           
                                           this.coordinator.Tell(job);
+                                          this.repoJob = job.Repo;
                                           this.BecomeAsking();
                                       });
         }
@@ -69,6 +72,8 @@ namespace GithubActors.Actors
             this.canAcceptJobSender = this.Sender;
             this.pendingJobReplies = this.coordinator.Ask<Routees>(new GetRoutees()).Result.Members.Count();
             this.Become(this.Asking);
+
+            Context.SetReceiveTimeout(TimeSpan.FromSeconds(3));
         }
 
         private void Asking()
@@ -97,12 +102,21 @@ namespace GithubActors.Actors
 
                                              this.BecomeReady();
                                          });
+
+            this.Receive<ReceiveTimeout>(
+                timeout =>
+                    {
+                        this.canAcceptJobSender.Tell(new UnableToAcceptJob(this.repoJob));
+                        this.BecomeReady();
+                    });
         }
 
         private void BecomeReady()
         {
             this.Become(this.Ready);
             this.Stash.UnstashAll();
+
+            Context.SetReceiveTimeout(null);
         }
 
         protected override void PreStart()
