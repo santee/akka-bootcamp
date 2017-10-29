@@ -8,7 +8,7 @@ namespace ChartApp.Actors
 {
     using System.Windows.Forms;
 
-    public class ChartingActor : ReceiveActor
+    public class ChartingActor : ReceiveActor, IWithUnboundedStash
     {
         public const int MaxPoints = 250;
 
@@ -88,11 +88,15 @@ namespace ChartApp.Actors
 
         private void Paused()
         {
+            this.Receive<AddSeries>(addSeries => this.Stash.Stash());
+            this.Receive<RemoveSeries>(removeSeries => this.Stash.Stash());
             this.Receive<ChartingMessages.Metric>(metric => this.HandleMetricsPaused(metric));
             this.Receive<TogglePause>(pause =>
                                      {
                                          this.SetPauseButtonText(false);
                                          this.UnbecomeStacked();
+
+                                         this.Stash.UnstashAll();
                                      });
         }
 
@@ -202,5 +206,7 @@ namespace ChartApp.Actors
                 area.AxisY.Maximum = maxAxisY;
             }
         }
+
+        public IStash Stash { get; set; }
     }
 }
