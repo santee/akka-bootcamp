@@ -8,7 +8,7 @@ namespace GithubActors.Actors
     /// <summary>
     /// Top-level actor responsible for coordinating and launching repo-processing jobs
     /// </summary>
-    public class GithubCommanderActor : ReceiveActor
+    public class GithubCommanderActor : ReceiveActor, IWithUnboundedStash
     {
         #region Message classes
 
@@ -44,45 +44,93 @@ namespace GithubActors.Actors
 
         #endregion
 
-        private IActorRef _coordinator;
-        private IActorRef _canAcceptJobSender;
+        private IActorRef coordinator;
+        private IActorRef canAcceptJobSender;
+
+        private int pendingJobReplies;
 
         public GithubCommanderActor()
         {
-            Receive<CanAcceptJob>(job =>
-            {
-                _canAcceptJobSender = Sender;
-                _coordinator.Tell(job);
-            });
+            this.Ready();
+        }
 
-            Receive<UnableToAcceptJob>(job =>
-            {
-                _canAcceptJobSender.Tell(job);
-            });
+        private void Ready()
+        {
+            this.Receive<CanAcceptJob>(job =>
+                                      {
+                                          
+                                          this.coordinator.Tell(job);
+                                          this.BecomeAsking();
+                                      });
+        }
 
-            Receive<AbleToAcceptJob>(job =>
-            {
-                _canAcceptJobSender.Tell(job);
+        private void BecomeAsking()
+        {
+            this.canAcceptJobSender = this.Sender;
+            this.pendingJobReplies = 3;
+            this.Become(this.Asking);
+        }
 
-                //start processing messages
-                _coordinator.Tell(new GithubCoordinatorActor.BeginJob(job.Repo));
+        private void Asking()
+        {
+            this.Receive<CanAcceptJob>(job => this.Stash.Stash());
 
-                //launch the new window to view results of the processing
-                Context.ActorSelection(ActorPaths.MainFormActor.Path).Tell(new MainFormActor.LaunchRepoResultsWindow(job.Repo, Sender));
-            });
+            this.Receive<UnableToAcceptJob>(job =>
+                                                {
+                                                    this.pendingJobReplies--;
+                                                    if (this.pendingJobReplies == 0)
+                                                    {
+                                                        this.canAcceptJobSender.Tell(job);
+                                                        this.BecomeReady();
+                                                    }
+                                                });
+
+            this.Receive<AbleToAcceptJob>(job =>
+                                         {
+                                             this.canAcceptJobSender.Tell(job);
+
+                                             //start processing messages
+                                             this.Sender.Tell(new GithubCoordinatorActor.BeginJob(job.Repo));
+
+                                             //launch the new window to view results of the processing
+                                             Context.ActorSelection(ActorPaths.MainFormActor.Path).Tell(new MainFormActor.LaunchRepoResultsWindow(job.Repo, Sender));
+
+                                             this.BecomeReady();
+                                         });
+        }
+
+        private void BecomeReady()
+        {
+            this.Become(this.Ready);
+            this.Stash.UnstashAll();
         }
 
         protected override void PreStart()
         {
-            _coordinator = Context.ActorOf(Props.Create(() => new GithubCoordinatorActor()), ActorPaths.GithubCoordinatorActor.Name);
+            var c1 = Context.ActorOf(Props.Create(() => new GithubCoordinatorActor()),
+                ActorPaths.GithubCoordinatorActor.Name + "1");
+            var c2 = Context.ActorOf(Props.Create(() => new GithubCoordinatorActor()),
+                ActorPaths.GithubCoordinatorActor.Name + "2");
+            var c3 = Context.ActorOf(Props.Create(() => new GithubCoordinatorActor()),
+                ActorPaths.GithubCoordinatorActor.Name + "3");
+
+            // create a broadcast router who will ask all of them 
+            // if they're available for work
+            this.coordinator =
+                Context.ActorOf(Props.Empty.WithRouter(
+                    new BroadcastGroup(ActorPaths.GithubCoordinatorActor.Path + "1",
+                        ActorPaths.GithubCoordinatorActor.Path + "2",
+                        ActorPaths.GithubCoordinatorActor.Path + "3")));
             base.PreStart();
         }
 
         protected override void PreRestart(Exception reason, object message)
         {
             //kill off the old coordinator so we can recreate it from scratch
-            _coordinator.Tell(PoisonPill.Instance);
+            this.coordinator.Tell(PoisonPill.Instance);
             base.PreRestart(reason, message);
         }
+
+        public IStash Stash { get; set; }
     }
 }
