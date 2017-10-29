@@ -6,11 +6,15 @@ using Akka.Actor;
 
 namespace ChartApp.Actors
 {
+    using System.Windows.Forms;
+
     public class ChartingActor : ReceiveActor
     {
         public const int MaxPoints = 250;
 
         private int xPosCounter = 0;
+
+        private readonly Button pauseButton;
 
         #region Messages
 
@@ -34,6 +38,11 @@ namespace ChartApp.Actors
             }
         }
 
+        public class TogglePause
+        {
+            
+        }
+
         public class InitializeChart
         {
             public InitializeChart(Dictionary<string, Series> initialSeries)
@@ -49,19 +58,47 @@ namespace ChartApp.Actors
         private readonly Chart chart;
         private Dictionary<string, Series> seriesIndex;
 
-        public ChartingActor(Chart chart) : this(chart, new Dictionary<string, Series>())
+        public ChartingActor(Chart chart, Button pauseButton) : this(chart, new Dictionary<string, Series>(), pauseButton)
         {
         }
 
-        public ChartingActor(Chart chart, Dictionary<string, Series> seriesIndex)
+        public ChartingActor(Chart chart, Dictionary<string, Series> seriesIndex, Button pauseButton)
         {
             this.chart = chart;
             this.seriesIndex = seriesIndex;
+            this.pauseButton = pauseButton;
 
+            this.Charting();
+        }
+
+        private void Charting()
+        {
             this.Receive<InitializeChart>(ic => this.HandleInitialize(ic));
             this.Receive<AddSeries>(addSeries => this.HandleAddSeries(addSeries));
             this.Receive<RemoveSeries>(removeSeries => this.HandleRemoveSeries(removeSeries));
             this.Receive<ChartingMessages.Metric>(metrics => this.HandleMetrics(metrics));
+
+            this.Receive<TogglePause>(
+                pause =>
+                    {
+                        this.SetPauseButtonText(true);
+                        this.BecomeStacked(this.Paused);
+                    });
+        }
+
+        private void Paused()
+        {
+            this.Receive<ChartingMessages.Metric>(metric => this.HandleMetricsPaused(metric));
+            this.Receive<TogglePause>(pause =>
+                                     {
+                                         this.SetPauseButtonText(false);
+                                         this.UnbecomeStacked();
+                                     });
+        }
+
+        private void SetPauseButtonText(bool paused)
+        {
+            this.pauseButton.Text = $@"{(!paused ? "PAUSE ||" : "RESUME ->")}";
         }
 
         #region Individual Message Type Handlers
@@ -96,6 +133,19 @@ namespace ChartApp.Actors
             {
                 var series = this.seriesIndex[metric.Series];
                 series.Points.AddXY(this.xPosCounter++, metric.CounterValue);
+                while (series.Points.Count > MaxPoints) series.Points.RemoveAt(0);
+                this.SetChartBoundaries();
+            }
+        }
+
+        private void HandleMetricsPaused(ChartingMessages.Metric metric)
+        {
+            if (!string.IsNullOrEmpty(metric.Series)
+                && this.seriesIndex.ContainsKey(metric.Series))
+            {
+                var series = this.seriesIndex[metric.Series];
+                // set the Y value to zero when we're paused
+                series.Points.AddXY(this.xPosCounter++, 0.0d);
                 while (series.Points.Count > MaxPoints) series.Points.RemoveAt(0);
                 this.SetChartBoundaries();
             }
