@@ -8,6 +8,10 @@ namespace ChartApp.Actors
 {
     public class ChartingActor : ReceiveActor
     {
+        public const int MaxPoints = 250;
+
+        private int xPosCounter = 0;
+
         #region Messages
 
         public class AddSeries
@@ -20,14 +24,24 @@ namespace ChartApp.Actors
             }
         }
 
+        public class RemoveSeries
+        {
+            public string SeriesName { get; }
+
+            public RemoveSeries(string seriesName)
+            {
+                this.SeriesName = seriesName;
+            }
+        }
+
         public class InitializeChart
         {
             public InitializeChart(Dictionary<string, Series> initialSeries)
             {
-                InitialSeries = initialSeries;
+                this.InitialSeries = initialSeries;
             }
 
-            public Dictionary<string, Series> InitialSeries { get; private set; }
+            public Dictionary<string, Series> InitialSeries { get; }
         }
 
         #endregion
@@ -46,6 +60,8 @@ namespace ChartApp.Actors
 
             this.Receive<InitializeChart>(ic => this.HandleInitialize(ic));
             this.Receive<AddSeries>(addSeries => this.HandleAddSeries(addSeries));
+            this.Receive<RemoveSeries>(removeSeries => this.HandleRemoveSeries(removeSeries));
+            this.Receive<ChartingMessages.Metric>(metrics => this.HandleMetrics(metrics));
         }
 
         #region Individual Message Type Handlers
@@ -57,6 +73,31 @@ namespace ChartApp.Actors
             {
                 this.seriesIndex.Add(series.Series.Name, series.Series);
                 this.chart.Series.Add(series.Series);
+                this.SetChartBoundaries();
+            }
+        }
+
+        private void HandleRemoveSeries(RemoveSeries series)
+        {
+            if (!string.IsNullOrEmpty(series.SeriesName) &&
+                this.seriesIndex.ContainsKey(series.SeriesName))
+            {
+                var seriesToRemove = this.seriesIndex[series.SeriesName];
+                this.seriesIndex.Remove(series.SeriesName);
+                this.chart.Series.Remove(seriesToRemove);
+                this.SetChartBoundaries();
+            }
+        }
+
+        private void HandleMetrics(ChartingMessages.Metric metric)
+        {
+            if (!string.IsNullOrEmpty(metric.Series) &&
+                this.seriesIndex.ContainsKey(metric.Series))
+            {
+                var series = this.seriesIndex[metric.Series];
+                series.Points.AddXY(this.xPosCounter++, metric.CounterValue);
+                while (series.Points.Count > MaxPoints) series.Points.RemoveAt(0);
+                this.SetChartBoundaries();
             }
         }
 
@@ -71,6 +112,12 @@ namespace ChartApp.Actors
             //delete any existing series
             this.chart.Series.Clear();
 
+            var area = this.chart.ChartAreas[0];
+            area.AxisX.IntervalType = DateTimeIntervalType.Number;
+            area.AxisY.IntervalType = DateTimeIntervalType.Number;
+
+            this.SetChartBoundaries();
+
             //attempt to render the initial chart
             if (this.seriesIndex.Any())
             {
@@ -81,8 +128,29 @@ namespace ChartApp.Actors
                     this.chart.Series.Add(series.Value);
                 }
             }
+
+            this.SetChartBoundaries();
         }
 
         #endregion
+
+        private void SetChartBoundaries()
+        {
+            var minAxisY = 0.0d;
+            var allPoints = this.seriesIndex.Values.SelectMany(series => series.Points).ToList();
+            var yValues = allPoints.SelectMany(point => point.YValues).ToList();
+            double maxAxisX = this.xPosCounter;
+            double minAxisX = this.xPosCounter - MaxPoints;
+            var maxAxisY = yValues.Count > 0 ? Math.Ceiling(yValues.Max()) : 1.0d;
+            minAxisY = yValues.Count > 0 ? Math.Floor(yValues.Min()) : 0.0d;
+            if (allPoints.Count > 2)
+            {
+                var area = this.chart.ChartAreas[0];
+                area.AxisX.Minimum = minAxisX;
+                area.AxisX.Maximum = maxAxisX;
+                area.AxisY.Minimum = minAxisY;
+                area.AxisY.Maximum = maxAxisY;
+            }
+        }
     }
 }
