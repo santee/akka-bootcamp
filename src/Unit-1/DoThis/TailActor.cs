@@ -56,21 +56,36 @@
         {
             this.reporterActor = reporterActor;
             this.filePath = filePath;
+        }
+
+        protected override void PreStart()
+        {
             this.observer = new FileObserver(this.Self, Path.GetFullPath(this.filePath));
             this.observer.Start();
 
-            this.fileStream = new FileStream(Path.GetFullPath(filePath), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            this.fileStream = new FileStream(Path.GetFullPath(this.filePath), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             this.fileStreamReader = new StreamReader(this.fileStream, Encoding.UTF8);
 
             var text = this.fileStreamReader.ReadToEnd();
-            this.Self.Tell(new InitialRead(filePath, text));
+            this.Self.Tell(new InitialRead(this.filePath, text));
+
+            base.PreStart();
+        }
+
+        protected override void PostStop()
+        {
+            this.observer.Dispose();
+            this.observer = null;
+            this.fileStreamReader.Close();
+            this.fileStreamReader.Dispose();
+            base.PostStop();
         }
 
         protected override void OnReceive(object message)
         {
             switch (message)
             {
-                case FileWrite msg:
+                case FileWrite _:
                     var text = this.fileStreamReader.ReadToEnd();
                     if (!string.IsNullOrWhiteSpace(text))
                     {
